@@ -1,0 +1,6 @@
+* 1 mA flows from ground into node 1, then through a 1 kOhm resistor.
+* Expected: V(1)=1 V.
+I1 0 1 0.001
+R1 1 0 1000
+.OP
+.END

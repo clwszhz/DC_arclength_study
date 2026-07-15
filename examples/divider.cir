@@ -1,0 +1,7 @@
+* Two-resistor divider.
+* Expected: V(1)=10 V, V(2)=5 V, I(V1)=-5 mA.
+V1 1 0 10
+R1 1 2 1000
+R2 2 0 1000
+.OP
+.END

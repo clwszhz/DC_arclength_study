@@ -1,0 +1,29 @@
+# CMake build outputs
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+CTestTestfile.cmake
+Testing/
+build/
+build-msys/
+lessons/
+practice/
+quick_learn/
+starter/
+note_gpt/
+matlab_code/
+# Visual Studio / MSVC generated files
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+x64/
+Debug/
+Release/
+
+# Local editor and OS noise
+.vs/
+.vscode/
+*.user
+Thumbs.db

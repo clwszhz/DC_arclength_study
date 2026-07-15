@@ -1,0 +1,5 @@
+* This circuit has no DC path from node 1 to ground.
+* Expected: the solver reports a singular matrix.
+I1 0 1 0.001
+.OP
+.END

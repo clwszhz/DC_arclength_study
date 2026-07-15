@@ -1,0 +1,16 @@
+* Schmitt trigger circuit 2 from the MATLAB modified-nodal example.
+* BJT order is: Qname collector base emitter model.
+VCC 6 0 10
+RE 1 0 100
+RC1 2 6 1500
+RC2 3 6 1000
+R1 2 4 10000
+R4 4 0 1000000
+R2 5 6 5000
+R3 5 0 1250
+Q1 2 5 1 QN
+Q2 3 4 1 QN
+.MODEL QN NPN IS=1e-16 AF=0.99 AR=0.5 N=38.78
+.START 0.5828 0.5862 0.9258 0.5751 0.0100 0.8094 0.6088
+.OP
+.END
