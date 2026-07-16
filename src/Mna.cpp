@@ -63,7 +63,7 @@ MnaSystem assembleMna(const Circuit& circuit)
 {
     if (!circuit.bjts.empty()) {
         throw std::runtime_error(
-            "linear MNA does not support BJT elements; use homotopy_solve");
+            "linear MNA does not support BJT elements; use nonlinear homotopy");
     }
 
     MnaSystem system;

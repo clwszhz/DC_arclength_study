@@ -29,9 +29,6 @@ endif()
 add_executable(dcsolve src/main.cpp)
 target_link_libraries(dcsolve PRIVATE dcsolve_core)
 
-add_executable(homotopy_solve src/homotopy_main.cpp)
-target_link_libraries(homotopy_solve PRIVATE dcsolve_core)
-
 add_executable(dcsolve_tests tests/test_lup.cpp)
 target_link_libraries(dcsolve_tests PRIVATE dcsolve_core)
 

@@ -9,10 +9,10 @@
 namespace dcsolve {
 
 struct HomotopyOptions {
-    double step_size = 0.05;
+    double step_size = 1.0;
     double gleak = 1e-3;
     double tolerance = 1e-9;
-    std::size_t max_steps = 200;
+    std::size_t max_steps = 1000;
     std::size_t max_newton_iterations = 12;
     std::size_t max_final_newton_iterations = 20;
 };

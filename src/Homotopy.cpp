@@ -79,6 +79,103 @@ Vector addScaled(const Vector& a, double scale, const Vector& b)
     return result;
 }
 
+std::size_t findNodeRow(const NonlinearMnaSystem& system, int node)
+{
+    const auto found =
+        std::find(system.node_labels.begin(), system.node_labels.end(), node);
+    if (found == system.node_labels.end()) {
+        throw std::runtime_error("voltage source node is missing from MNA rows");
+    }
+    return static_cast<std::size_t>(found - system.node_labels.begin());
+}
+
+std::vector<std::size_t> makeHomotopyRowOrder(
+    const Circuit& circuit, const NonlinearMnaSystem& system)
+{
+    const std::size_t n = system.variable_names.size();
+    const std::size_t node_count = system.node_labels.size();
+    std::vector<std::size_t> rows(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        rows[i] = i;
+    }
+
+    for (std::size_t k = 0; k < circuit.voltage_sources.size(); ++k) {
+        const auto& source = circuit.voltage_sources[k];
+        const std::size_t branch_row = node_count + k;
+
+        int constrained_node = 0;
+        if (source.p != 0 && source.n == 0) {
+            constrained_node = source.p;
+        } else if (source.p == 0 && source.n != 0) {
+            constrained_node = source.n;
+        } else {
+            continue;
+        }
+
+        const std::size_t node_row = findNodeRow(system, constrained_node);
+        rows[node_row] = branch_row;
+        rows[branch_row] = node_row;
+    }
+
+    return rows;
+}
+
+Vector reorderRows(Vector values, const std::vector<std::size_t>& rows)
+{
+    if (values.size() != rows.size()) {
+        throw std::runtime_error("homotopy row permutation dimension mismatch");
+    }
+
+    Vector ordered(values.size(), 0.0);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        ordered[i] = values[rows[i]];
+    }
+    return ordered;
+}
+
+Matrix reorderRows(Matrix values, const std::vector<std::size_t>& rows)
+{
+    if (values.size() != rows.size()) {
+        throw std::runtime_error("homotopy matrix row permutation dimension mismatch");
+    }
+
+    Matrix ordered(values.size(), Vector(values.size(), 0.0));
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        ordered[i] = values[rows[i]];
+    }
+    return ordered;
+}
+
+Vector evaluateHomotopyResidualBase(
+    const Circuit& circuit,
+    const NonlinearMnaSystem& system,
+    const Vector& x)
+{
+    return reorderRows(
+        evaluateResidual(circuit, system, x),
+        makeHomotopyRowOrder(circuit, system));
+}
+
+Matrix evaluateHomotopyJacobianBase(
+    const Circuit& circuit,
+    const NonlinearMnaSystem& system,
+    const Vector& x)
+{
+    return reorderRows(
+        evaluateJacobian(circuit, system, x),
+        makeHomotopyRowOrder(circuit, system));
+}
+
+bool allFinite(const Vector& values)
+{
+    for (double value : values) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 Matrix evaluateHomotopyJacobianX(
     const Circuit& circuit,
     const NonlinearMnaSystem& system,
@@ -86,7 +183,7 @@ Matrix evaluateHomotopyJacobianX(
     double lambda,
     double gleak)
 {
-    Matrix jacobian = evaluateJacobian(circuit, system, x);
+    Matrix jacobian = evaluateHomotopyJacobianBase(circuit, system, x);
     const std::size_t n = jacobian.size();
 
     for (std::size_t row = 0; row < n; ++row) {
@@ -106,7 +203,7 @@ Vector evaluateHomotopyJacobianLambda(
     const Vector& x,
     double gleak)
 {
-    Vector result = evaluateResidual(circuit, system, x);
+    Vector result = evaluateHomotopyResidualBase(circuit, system, x);
     if (result.size() != start.size() || x.size() != start.size()) {
         throw std::runtime_error("homotopy lambda derivative dimension mismatch");
     }
@@ -235,7 +332,23 @@ struct CorrectorResult {
     Vector y;
     std::size_t iterations = 0;
     double norm = 0.0;
+    bool converged = false;
 };
+
+double pseudoResidualNorm(
+    const Circuit& circuit,
+    const NonlinearMnaSystem& system,
+    const Vector& start,
+    const Vector& y_predicted,
+    const Vector& y,
+    const Vector& tangent,
+    const HomotopyOptions& options)
+{
+    Vector residual = evaluateHomotopy(
+        circuit, system, start, y[0], yToX(y), options.gleak);
+    residual.push_back(dot(tangent, addScaled(y, -1.0, y_predicted)));
+    return maxAbs(residual);
+}
 
 CorrectorResult correctPseudoArclength(
     const Circuit& circuit,
@@ -261,7 +374,7 @@ CorrectorResult correctPseudoArclength(
 
         const double residual_norm = maxAbs(residual);
         if (residual_norm <= options.tolerance) {
-            return {y, iter, residual_norm};
+            return {y, iter, residual_norm, true};
         }
 
         if (iter == options.max_newton_iterations) {
@@ -278,8 +391,11 @@ CorrectorResult correctPseudoArclength(
         y = addScaled(y, 1.0, delta);
     }
 
-    return {y, options.max_newton_iterations, maxAbs(evaluateHomotopy(
-                   circuit, system, start, y[0], yToX(y), options.gleak))};
+    return {y,
+            options.max_newton_iterations,
+            pseudoResidualNorm(
+                circuit, system, start, y_predicted, y, tangent, options),
+            false};
 }
 
 Vector tangentAt(
@@ -341,7 +457,12 @@ FinalNewtonResult solveAtLambdaOne(
         for (double& value : residual) {
             value = -value;
         }
-        const Vector delta = solveLup(std::move(jacobian), residual);
+        Vector delta;
+        try {
+            delta = solveLup(std::move(jacobian), residual);
+        } catch (const std::exception&) {
+            return {x, residual_norm, iter, false};
+        }
         x = addScaled(x, 1.0, delta);
     }
 
@@ -395,7 +516,7 @@ Vector evaluateHomotopy(
         throw std::runtime_error("homotopy dimension mismatch");
     }
 
-    Vector h = evaluateResidual(circuit, system, x);
+    Vector h = evaluateHomotopyResidualBase(circuit, system, x);
     for (std::size_t i = 0; i < h.size(); ++i) {
         h[i] = (1.0 - lambda) * gleak * (x[i] - start[i]) + lambda * h[i];
     }
@@ -422,21 +543,48 @@ HomotopyResult solvePseudoArclength(
     }
 
     HomotopyResult result;
-    Vector y = makeY(0.0, start);
-    Vector tangent = initialTangent(circuit, system, start, options.gleak);
-
     result.steps.push_back({0,
                             0.0,
                             start,
-                            maxAbs(evaluateHomotopy(
-                                circuit, system, start, 0.0, start, options.gleak)),
+                            maxAbs(evaluateHomotopy(circuit,
+                                                    system,
+                                                    start,
+                                                    0.0,
+                                                    start,
+                                                    options.gleak)),
                             maxAbs(evaluateResidual(circuit, system, start)),
                             0});
 
+    Vector y = makeY(0.0, start);
+    Vector tangent = initialTangent(circuit, system, start, options.gleak);
+
+    double arc_step = options.step_size;
+    constexpr double min_arc_step = 1e-8;
     for (std::size_t step = 1; step <= options.max_steps; ++step) {
-        const Vector y_predicted = addScaled(y, options.step_size, tangent);
-        const CorrectorResult corrected = correctPseudoArclength(
-            circuit, system, start, y_predicted, y_predicted, tangent, options);
+        CorrectorResult corrected;
+        Vector y_predicted;
+        bool accepted = false;
+
+        while (arc_step >= min_arc_step) {
+            y_predicted = addScaled(y, arc_step, tangent);
+            try {
+                corrected = correctPseudoArclength(
+                    circuit, system, start, y_predicted, y_predicted, tangent, options);
+            } catch (const std::exception&) {
+                corrected.converged = false;
+            }
+
+            if (corrected.converged && allFinite(corrected.y)) {
+                accepted = true;
+                break;
+            }
+
+            arc_step *= 0.5;
+        }
+
+        if (!accepted) {
+            break;
+        }
 
         y = corrected.y;
         const Vector x = yToX(y);
@@ -467,31 +615,21 @@ HomotopyResult solvePseudoArclength(
             return result;
         }
 
-        tangent = tangentAt(
-            circuit, system, start, y, tangent, options.gleak);
+        try {
+            tangent = tangentAt(
+                circuit, system, start, y, tangent, options.gleak);
+        } catch (const std::exception&) {
+            arc_step *= 0.5;
+        }
+
+        if (corrected.iterations <= 3) {
+            arc_step = std::min(options.step_size, arc_step * 1.25);
+        }
     }
 
     result.converged = false;
     result.lambda = y[0];
     result.x = yToX(y);
-    const FinalNewtonResult final =
-        solveAtLambdaOne(circuit, system, result.x, options);
-    if (final.converged) {
-        result.converged = true;
-        result.lambda = 1.0;
-        result.x = final.x;
-        result.steps.push_back({options.max_steps + 1,
-                                1.0,
-                                final.x,
-                                maxAbs(evaluateHomotopy(circuit,
-                                                        system,
-                                                        start,
-                                                        1.0,
-                                                        final.x,
-                                                        options.gleak)),
-                                final.norm,
-                                final.iterations});
-    }
     return result;
 }
 

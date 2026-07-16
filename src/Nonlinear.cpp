@@ -132,17 +132,20 @@ BjtStamp evaluateBjtStamp(
     const double dfc_dvc = -dfc_dvb;
 
     BjtStamp stamp;
-    stamp.ie = fe - ar * fc;
-    stamp.ic = fc - af * fe;
+    // Match the MATLAB Ebers-Moll convention used by the reference demos:
+    // fe/fc are defined with a leading minus sign there, so terminal
+    // currents are the negative of the natural exp(Vbe/Vbc) form above.
+    stamp.ie = -(fe - ar * fc);
+    stamp.ic = -(fc - af * fe);
     stamp.ib = -stamp.ic - stamp.ie;
 
-    stamp.die_dvc = -ar * dfc_dvc;
-    stamp.die_dvb = dfe_dvb - ar * dfc_dvb;
-    stamp.die_dve = dfe_dve;
+    stamp.die_dvc = -(-ar * dfc_dvc);
+    stamp.die_dvb = -(dfe_dvb - ar * dfc_dvb);
+    stamp.die_dve = -dfe_dve;
 
-    stamp.dic_dvc = dfc_dvc;
-    stamp.dic_dvb = dfc_dvb - af * dfe_dvb;
-    stamp.dic_dve = -af * dfe_dve;
+    stamp.dic_dvc = -dfc_dvc;
+    stamp.dic_dvb = -(dfc_dvb - af * dfe_dvb);
+    stamp.dic_dve = af * dfe_dve;
 
     stamp.dib_dvc = -stamp.dic_dvc - stamp.die_dvc;
     stamp.dib_dvb = -stamp.dic_dvb - stamp.die_dvb;
