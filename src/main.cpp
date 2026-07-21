@@ -4,6 +4,7 @@
 #include "dcsolve/Mna.h"
 #include "dcsolve/Nonlinear.h"
 
+#include <algorithm>
 #include <exception>
 #include <iomanip>
 #include <iostream>
@@ -51,12 +52,49 @@ void printProgress(const dcsolve::HomotopyResult& result)
               << "newton" << '\n';
 
     std::cout << std::scientific << std::setprecision(6);
-    for (const auto& step : result.steps) {
+    const std::size_t head_count = result.steps.size() > 90 ? 50 : result.steps.size();
+    const std::size_t tail_count = result.steps.size() > 90 ? 20 : 0;
+    for (std::size_t i = 0; i < result.steps.size(); ++i) {
+        if (tail_count != 0 && i == head_count) {
+            std::cout << "  ... " << (result.steps.size() - head_count - tail_count)
+                      << " steps omitted ...\n";
+            i = result.steps.size() - tail_count;
+        }
+        const auto& step = result.steps[i];
         std::cout << "  " << std::setw(5) << step.step << ' ' << std::setw(12)
                   << step.lambda << ' ' << std::setw(14)
                   << step.homotopy_norm << ' ' << std::setw(14)
                   << step.circuit_norm << ' ' << std::setw(8)
                   << step.newton_iterations << '\n';
+    }
+}
+
+void printSolutions(
+    const dcsolve::Circuit& circuit,
+    const dcsolve::NonlinearMnaSystem& system,
+    const dcsolve::HomotopyResult& result)
+{
+    if (result.solutions.empty()) {
+        dcsolve::printNamedVector(
+            std::cout, system.variable_names, result.x, "Tracked point when stopped");
+        const auto residual = dcsolve::evaluateResidual(circuit, system, result.x);
+        dcsolve::printNamedVector(
+            std::cout, system.variable_names, residual, "F(x) at stopped point");
+        std::cout << "  max|F| = " << dcsolve::maxAbs(residual) << '\n';
+        return;
+    }
+
+    std::cout << "\nDC solutions at lambda=1: "
+              << result.solutions.size() << "\n";
+    for (std::size_t i = 0; i < result.solutions.size(); ++i) {
+        const auto& solution = result.solutions[i];
+        std::cout << "\nSolution " << (i + 1)
+                  << "  step=" << solution.step
+                  << "  max|F|=" << std::scientific << std::setprecision(9)
+                  << solution.residual_norm
+                  << "  final_newton=" << solution.newton_iterations << '\n';
+        dcsolve::printNamedVector(
+            std::cout, system.variable_names, solution.x, "x");
     }
 }
 
@@ -89,16 +127,10 @@ int solveNonlinear(const dcsolve::Circuit& circuit, const dcsolve::HomotopyOptio
         dcsolve::solvePseudoArclength(circuit, system, start, options);
     printProgress(result);
 
-    dcsolve::printNamedVector(
-        std::cout, system.variable_names, result.x, "Final solution");
-    const auto final_residual =
-        dcsolve::evaluateResidual(circuit, system, result.x);
-    dcsolve::printNamedVector(
-        std::cout, system.variable_names, final_residual, "Final F(x)");
-    std::cout << "  max|F| = " << dcsolve::maxAbs(final_residual) << '\n';
+    printSolutions(circuit, system, result);
 
     if (!result.converged) {
-        std::cerr << "warning: homotopy did not converge to lambda=1\n";
+        std::cerr << "warning: homotopy did not find a lambda=1 DC solution\n";
         return 1;
     }
 

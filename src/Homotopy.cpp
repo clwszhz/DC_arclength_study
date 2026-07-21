@@ -103,12 +103,8 @@ std::vector<std::size_t> makeHomotopyRowOrder(
         const auto& source = circuit.voltage_sources[k];
         const std::size_t branch_row = node_count + k;
 
-        int constrained_node = 0;
-        if (source.p != 0 && source.n == 0) {
-            constrained_node = source.p;
-        } else if (source.p == 0 && source.n != 0) {
-            constrained_node = source.n;
-        } else {
+        const int constrained_node = source.p != 0 ? source.p : source.n;
+        if (constrained_node == 0) {
             continue;
         }
 
@@ -469,6 +465,85 @@ FinalNewtonResult solveAtLambdaOne(
     return {x, 0.0, 0, false};
 }
 
+double maxAbsDifference(const Vector& a, const Vector& b)
+{
+    if (a.size() != b.size()) {
+        throw std::runtime_error("solution dimension mismatch");
+    }
+
+    double result = 0.0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        result = std::max(result, std::abs(a[i] - b[i]));
+    }
+    return result;
+}
+
+bool crossesLambdaOne(double previous_lambda, double current_lambda, double tolerance)
+{
+    if (std::abs(previous_lambda - 1.0) <= tolerance
+        || std::abs(current_lambda - 1.0) <= tolerance) {
+        return true;
+    }
+    return (previous_lambda < 1.0 && current_lambda > 1.0)
+           || (previous_lambda > 1.0 && current_lambda < 1.0);
+}
+
+Vector interpolateAtLambdaOne(const Vector& previous_y, const Vector& current_y)
+{
+    if (previous_y.size() != current_y.size() || previous_y.empty()) {
+        throw std::runtime_error("lambda crossing interpolation dimension mismatch");
+    }
+
+    const double lambda_step = current_y[0] - previous_y[0];
+    if (lambda_step == 0.0) {
+        return current_y;
+    }
+
+    const double alpha =
+        std::clamp((1.0 - previous_y[0]) / lambda_step, 0.0, 1.0);
+    return addScaled(previous_y, alpha, addScaled(current_y, -1.0, previous_y));
+}
+
+bool isDuplicateSolution(
+    const std::vector<HomotopySolution>& solutions,
+    const Vector& x,
+    double tolerance)
+{
+    const double solution_scale = std::max(1.0, maxAbs(x));
+    const double duplicate_tolerance = std::max(1e-6, 100.0 * tolerance * solution_scale);
+
+    for (const auto& solution : solutions) {
+        if (maxAbsDifference(solution.x, x) <= duplicate_tolerance) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void recordLambdaOneSolution(
+    HomotopyResult& result,
+    const Circuit& circuit,
+    const NonlinearMnaSystem& system,
+    const Vector& y_crossing,
+    std::size_t step,
+    const HomotopyOptions& options)
+{
+    const FinalNewtonResult final =
+        solveAtLambdaOne(circuit, system, yToX(y_crossing), options);
+    if (!final.converged || !allFinite(final.x)
+        || isDuplicateSolution(result.solutions, final.x, options.tolerance)) {
+        return;
+    }
+
+    result.solutions.push_back(
+        {step, final.x, final.norm, final.iterations});
+    result.converged = true;
+    result.lambda = 1.0;
+    if (result.solutions.size() == 1) {
+        result.x = final.x;
+    }
+}
+
 bool sameVariables(
     const NonlinearMnaSystem& nonlinear_system, const MnaSystem& linear_system)
 {
@@ -586,6 +661,7 @@ HomotopyResult solvePseudoArclength(
             break;
         }
 
+        const Vector previous_y = y;
         y = corrected.y;
         const Vector x = yToX(y);
         result.steps.push_back({step,
@@ -595,24 +671,13 @@ HomotopyResult solvePseudoArclength(
                                 maxAbs(evaluateResidual(circuit, system, x)),
                                 corrected.iterations});
 
-        if (y[0] >= 1.0 - options.tolerance) {
-            const FinalNewtonResult final =
-                solveAtLambdaOne(circuit, system, x, options);
-            result.converged = final.converged;
-            result.lambda = 1.0;
-            result.x = final.x;
-            result.steps.push_back({step + 1,
-                                    1.0,
-                                    final.x,
-                                    maxAbs(evaluateHomotopy(circuit,
-                                                            system,
-                                                            start,
-                                                            1.0,
-                                                            final.x,
-                                                            options.gleak)),
-                                    final.norm,
-                                    final.iterations});
-            return result;
+        if (crossesLambdaOne(previous_y[0], y[0], options.tolerance)) {
+            recordLambdaOneSolution(result,
+                                    circuit,
+                                    system,
+                                    interpolateAtLambdaOne(previous_y, y),
+                                    step,
+                                    options);
         }
 
         try {
@@ -627,9 +692,11 @@ HomotopyResult solvePseudoArclength(
         }
     }
 
-    result.converged = false;
-    result.lambda = y[0];
-    result.x = yToX(y);
+    result.converged = !result.solutions.empty();
+    if (!result.converged) {
+        result.lambda = y[0];
+        result.x = yToX(y);
+    }
     return result;
 }
 

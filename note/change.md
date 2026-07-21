@@ -39,7 +39,7 @@ J(x)  雅可比矩阵
 
 `Homotopy.cpp` 已经改成全程伪弧长 continuation：从 `lambda=0, x=a` 出发，先计算同伦曲线切线，再用 predictor 沿 `[lambda,x]` 空间走一小段，最后用 Newton corrector 解增广方程，把预测点拉回 `H(lambda,x)=0` 曲线上。
 
-如果 corrector 遇到奇异矩阵或不收敛，就缩小弧长步长重试，而不是切换回自然参数方法。只有路径到达或越过 `lambda=1` 后，程序才会固定 `lambda=1`，用原始 `F(x)=0` 做最终 Newton 验证。
+如果 corrector 遇到奇异矩阵或不收敛，就缩小弧长步长重试，而不是切换回自然参数方法。每次路径穿过 `lambda=1` 时，程序都会插值得到交点，然后固定 `lambda=1`，用原始 `F(x)=0` 做最终 Newton 验证。
 
 ## 6. 对齐 MATLAB 的同伦行顺序
 
@@ -62,50 +62,32 @@ H(lambda,x) = (1-lambda)*G*(x-a) + lambda*F(x)
 
 因此 C++ 现在只在构造同伦函数时做行重排：标准 MNA 残差仍保持原来的通用形式，`H(lambda,x)` 内部的 `F/J` 行顺序则对齐 MATLAB。这样既保留通用 MNA，又避免 Schmitt1 跑到错误分支。
 
-## 7. 新增 Schmitt1 网表示例
+## 7. 新增 Schmitt1 和 Chua 网表示例
 
-新增 `examples/schmitt1.cir`，按照 MATLAB 中 Schmitt1 的电路结构写成通用网表。这个例子用于验证：只要器件模型支持 BJT，Schmitt 电路就可以自然列出方程，而不是给某个电路单独硬编码公式。
+新增 `examples/schmitt1.cir` 和 `examples/chua.cir`，按照 MATLAB 中对应 case 的电路结构写成通用网表。这些例子用于验证：只要器件模型支持 BJT，Schmitt 和 Chua 电路就可以自然列出方程，而不是给某个电路单独硬编码公式。
 
 ## 8. 当前验证结果
 
-线性分压电路可以正常走直接 MNA 流程。Schmitt1 和 Schmitt2 现在都可以用默认参数追踪到 `lambda=1`。
+线性分压电路可以正常走直接 MNA 流程。Schmitt1、Schmitt2 和 Chua 现在都可以用默认参数追踪同伦路径，并记录路径穿过 `lambda=1` 时得到的多个 DC 解。
 
-Schmitt1：
-
-```text
-max|F| = 1.663995330e-12
-```
-
-最终解：
+默认参数：
 
 ```text
-V(1)  = 0.7103295486
-V(2)  = 0.6725366859
-V(3)  = 10.0000000000
-V(4)  = 0.7103295486
-V(5)  = 1.5000000000
-V(6)  = 10.0000000000
-I(VCC)= -0.004644835226
-I(VIN)= -0.002080531633
+step_size = 0.1
+gleak = 1e-3
+max_steps = 3000
 ```
 
-Schmitt2：
+当前验证：
 
 ```text
-max|F| = 3.796460542e-12
+schmitt1.cir: 找到 3 个 lambda=1 DC 解，max|F| 约 1e-11
+schmitt2.cir: 找到 3 个 lambda=1 DC 解，max|F| 约 1e-11
+chua.cir:     找到 9 个 lambda=1 DC 解，max|F| 约 1e-11
+dcsolve_tests: passed
 ```
 
-最终解：
-
-```text
-V(1)  = 0.6682234624
-V(2)  = 0.7398511601
-V(3)  = 10.0000000000
-V(4)  = 0.7325259010
-V(5)  = 1.4904654110
-V(6)  = 10.0000000000
-I(VCC)= -0.007875339478
-```
+这说明当前 C++ 版本已经实现了 MATLAB 参考程序里很关键的一点：同伦路径不是只求第一个 `lambda=1` 解，而是继续追踪，并在每次穿过 `lambda=1` 时做最终 Newton 和去重。
 
 ## 9. 后续重点
 
@@ -113,7 +95,7 @@ I(VCC)= -0.007875339478
 
 ```text
 1. 导出 lambda-x 路径 CSV，画出类似 MATLAB Result.jpg 的路径图
-2. 如果要找多个解，再复现 MATLAB 的“lambda 多次穿过 1 时记录多个解”的逻辑
+2. 继续和 MATLAB 的每个 Sol 数值逐项对照，确认变量顺序和符号完全一致
 ```
 
-目前代码的核心进展是：已经从“针对某个电路手写方程”推进到“从网表自动生成非线性 MNA 方程”，并且 Schmitt1/Schmitt2 都能通过同伦追踪到有效工作点。
+目前代码的核心进展是：已经从“针对某个电路手写方程”推进到“从网表自动生成非线性 MNA 方程”，并且 Schmitt1/Schmitt2/Chua 都能通过同伦追踪到多个有效工作点。

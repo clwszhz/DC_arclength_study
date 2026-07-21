@@ -135,9 +135,11 @@ tangent^T * (y - y_pred) = 0
 5. predictor 预测新点
 6. corrector 修正新点
 7. 成功则记录路径点
-8. 如果 lambda 到 1，做最终 Newton 并返回
-9. 否则更新切线，继续下一步
-10. 超过最大步数或步长过小则失败返回
+8. 判断当前路径段是否穿过 lambda=1
+9. 如果穿过 lambda=1，插值得到交点，再做最终 Newton
+10. 如果这个 DC 解不是重复解，就加入 result.solutions
+11. 更新切线，继续追踪后面的路径
+12. 超过最大步数或步长过小则停止
 ```
 
 最核心的三句：
@@ -154,9 +156,11 @@ tangent = tangentAt(...);
 预测 -> 修正 -> 更新切线
 ```
 
+现在代码不会在第一次到达 `lambda=1` 时直接结束，而是继续沿同伦曲线走。每次路径从 `lambda<1` 到 `lambda>1`，或者反过来从 `lambda>1` 到 `lambda<1`，都说明同伦路径穿过了真实电路平面 `lambda=1`，程序就会记录一个候选 DC 解。
+
 ## 9. 为什么还要最终 Newton
 
-- 伪弧长路径到达或越过 `lambda=1` 时，当前点只是接近真实电路解。
+- 伪弧长路径穿过 `lambda=1` 时，插值得到的点只是接近真实电路解。
 - 程序最后固定 `lambda=1`，直接解原始方程：
 
 ```text
@@ -165,30 +169,34 @@ F(x)=0
 
 - 这一步用标准 `evaluateResidual()` 和 `evaluateJacobian()`，不是行重排后的 `Fh/Jh`。
 - 最终输出的 `max|F|` 才是判断真实电路工作点是否成立的关键。
+- 如果最终 Newton 不收敛，或者新解和已有解太接近，程序不会把它加入解列表。
 
 ## 10. 当前验证
 
 默认参数：
 
 ```text
-step_size = 1.0
+step_size = 0.1
 gleak = 1e-3
 tolerance = 1e-9
-max_steps = 1000
+max_steps = 3000
 ```
 
 验证结果：
 
 ```text
-schmitt1.cir: max|F| = 1.663995330e-12
-schmitt2.cir: max|F| = 3.796460542e-12
+schmitt1.cir: 找到 3 个 lambda=1 DC 解，max|F| 约 1e-11
+schmitt2.cir: 找到 3 个 lambda=1 DC 解，max|F| 约 1e-11
+chua.cir:     找到 9 个 lambda=1 DC 解，max|F| 约 1e-11
 ctest: 100% passed
 ```
 
+这里的“多个解”来自 `HomotopyResult::solutions`。每个元素保存最终 Newton 后的 `x`、残差范数和 Newton 迭代次数。
 
 ## 11. 当前不足
 
 - 还没有稀疏矩阵。
 - 还没有 AC、TRAN、DC sweep。
 - BJT 模型只覆盖当前示例需要的参数。
-- 伪弧长是教学版，没有完整 MATLAB `pchomotopy` 的高阶可变步长和多解记录。
+- 伪弧长是教学版，没有完整 MATLAB `pchomotopy` 的高阶可变步长。
+- 当前“全解”指沿当前固定点同伦路径穿过 `lambda=1` 的所有已记录交点，不等于数学上证明所有孤立分支都已经找到。

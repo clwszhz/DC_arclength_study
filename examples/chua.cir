@@ -1,0 +1,34 @@
+* Chua circuit from matlab_code/Chua_circuit_modified_nodal.
+* BJT order is: Qname collector base emitter model.
+* Variable order is expected to match MATLAB:
+* V(1)..V(14), I(VCC1), I(VCC2), I(V1), I(V2).
+
+VCC1 13 0 12
+VCC2 14 0 12
+V1 1 2 10
+V2 11 3 2
+
+R1 2 3 10000
+R2 4 13 4000
+R3 5 14 4000
+R4 1 0 5000
+R5 4 6 30000
+R6 8 0 500
+R7 9 0 500
+R8 5 7 30000
+R9 6 0 10100
+R10 7 0 10100
+R11 10 13 4000
+R12 12 14 4000
+R13 3 10 30000
+R14 11 12 30000
+
+Q1 4 1 8 QN
+Q2 10 6 8 QN
+Q3 5 1 9 QN
+Q4 12 7 9 QN
+
+.MODEL QN NPN IS=1e-9 BF=100 BR=1 N=38.7766
+.START 0.0759 0.0540 0.5308 0.7792 0.9340 0.1299 0.5688 0.4694 0.0119 0.3371 0.1622 0.7943 0.3112 0.5285 0.1656 0.6020 0.2630 0.6541
+.OP
+.END
